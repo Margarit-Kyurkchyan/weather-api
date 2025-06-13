@@ -1,0 +1,107 @@
+services:
+  # Weather API Service
+  weather-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: weather-api
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_REGION=us-east-1
+      - AWS_ENDPOINT_URL_S3=http://minio:9000
+      - AWS_ENDPOINT_URL_DYNAMODB=http://dynamodb-local:8000
+      - S3_BUCKET_NAME=weather-data-bucket
+      - DYNAMODB_TABLE_NAME=weather-events
+      - CACHE_EXPIRY_MINUTES=5
+      - LOG_LEVEL=INFO
+    depends_on:
+      - minio
+      - dynamodb-local
+    restart: unless-stopped
+    networks:
+      - weather-network
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+    networks:
+      - weather-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # DynamoDB Local
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: dynamodb-local
+    ports:
+      - "8002:8000"
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    restart: unless-stopped
+    networks:
+      - weather-network
+
+  # DynamoDB Admin (Optional - for database management)
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin:latest
+    container_name: dynamodb-admin
+    ports:
+      - "8001:8001"
+    environment:
+      - DYNAMO_ENDPOINT=http://dynamodb-local:8000
+      - AWS_REGION=us-east-1
+    depends_on:
+      - dynamodb-local
+    restart: unless-stopped
+    networks:
+      - weather-network
+
+  # MinIO Client for bucket initialization
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      - minio
+    networks:
+      - weather-network
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set minio http://minio:9000 minioadmin minioadmin; do
+        sleep 1
+      done;
+      mc mb minio/weather-data-bucket --ignore-existing;
+      mc policy set public minio/weather-data-bucket;
+      exit 0;
+      "
+
+volumes:
+  minio-data:
+    driver: local
+
+networks:
+  weather-network:
+    driver: bridge

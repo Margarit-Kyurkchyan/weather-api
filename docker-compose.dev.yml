@@ -1,0 +1,21 @@
+services:
+  weather-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - /app/__pycache__
+    environment:
+      - LOG_LEVEL=DEBUG
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  # Additional development tools
+  redis:
+    image: redis:7-alpine
+    container_name: redis-dev
+    ports:
+      - "6379:6379"
+    networks:
+      - weather-network
+    restart: unless-stopped
