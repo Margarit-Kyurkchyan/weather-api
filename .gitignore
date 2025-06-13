@@ -66,8 +66,6 @@ data/
 *.log
 *.db
 *.sqlite
-# Docker
-.dockerignore
 # Local development
 .env.local
 .env.development
